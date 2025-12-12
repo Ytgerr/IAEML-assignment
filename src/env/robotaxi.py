@@ -10,23 +10,23 @@ from env.base import BaseEnv, BaseEnvParams, BaseEnvState, BaseEnvObservation
 class VehicleDynamics:
     @staticmethod
     @partial(jax.jit, static_argnames=("dt", "friction_coeff"))
-    def step_dynamics(state, action, dt, friction_coeff=0.2):
+    def step_dynamics(state, action, dt, friction_coeff=0.1):
 
         x, y, theta, v, delta = state
         accel, steering_rate = action
 
-        accel = jnp.clip(accel, -5.0, 5.0)
-        steering_rate = jnp.clip(steering_rate, -1.5, 1.5)
-        delta = jnp.clip(delta, -0.5, 0.5)
+        accel = jnp.clip(accel, -2.0, 2.0)
+        steering_rate = jnp.clip(steering_rate, -10, 10)
+        delta = jnp.clip(delta, -0.25, 0.25)
 
         new_delta = delta + steering_rate * dt
-        new_delta = jnp.clip(new_delta, -0.5, 0.5)
+        new_delta = jnp.clip(new_delta, -1, 1)
 
         friction_force = friction_coeff * v
         new_v = v + (accel - friction_force) * dt
         new_v = jnp.maximum(new_v, 0.0)
 
-        L = 2.5
+        L = 0.5
 
         def straight_motion(_):
             new_x = x + new_v * jnp.cos(theta) * dt
