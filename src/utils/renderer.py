@@ -4,6 +4,8 @@ import pygame
 import jax.numpy as jnp
 from jax import random
 import math
+import imageio
+import numpy as np
 
 from utils import utils
 
@@ -21,14 +23,18 @@ YELLOW = (200, 200, 50)
 # TODO: draw time
 
 class PygameFrontend:
-    def __init__(self, env, env_params, init_state, eval_mode=False, agent_fn=None):
+    def __init__(self, env, env_params, init_state, eval_mode=False, video_name: str = "record", stop_on_done: bool = True, agent_fn=None):
         pygame.init()
         self.env = env
+        self.record_video = True       
+        self.video_frames = []  
         self.params = env_params
         self.init_state = init_state
         self.eval_mode = eval_mode
         self.agent_fn = agent_fn
-
+        self.stop_on_done = stop_on_done
+        self.video_name = video_name
+        
         h, w = int(env_params.map_height_width[0]), int(env_params.map_height_width[1])
         self.CELL_SIZE = 40  # pixels per map unit
         self.screen = pygame.display.set_mode((w * self.CELL_SIZE, h * self.CELL_SIZE))
@@ -240,14 +246,29 @@ class PygameFrontend:
             else:
                 action = self.handle_keys()
 
-            self.obs, self.state, _, _, self.info = self.env.step(
+            self.obs, self.state, reward, done, self.info = self.env.step(
                 self.key, self.state, action, self.params
             )
+            if bool(done) and self.stop_on_done:
+                print("Episode finished, closing visualization.")
+                self.draw()
+                self.running = False
 
             # print(self.state.static_obstacles)
             # print(self.obs.collision_rays)
 
             self.draw()
+            if self.record_video:
+                surface = pygame.display.get_surface()
+                frame = pygame.surfarray.array3d(surface)
+                frame = np.transpose(frame, (1, 0, 2)) 
+                self.video_frames.append(frame)
             self.clock.tick(FPS)
-
+        if self.record_video and len(self.video_frames) > 0:
+            imageio.mimsave(
+                f"src/video/{self.video_name}.mp4",
+                self.video_frames,
+                fps=FPS
+            )
+            print("Video saved as manual_control.mp4")
         pygame.quit()

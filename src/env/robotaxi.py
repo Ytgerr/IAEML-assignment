@@ -11,7 +11,6 @@ class VehicleDynamics:
     @staticmethod
     @partial(jax.jit, static_argnames=("dt", "friction_coeff"))
     def step_dynamics(state, action, dt, friction_coeff=0.1):
-
         x, y, theta, v, delta = state
         accel, steering_rate = action
 
@@ -37,25 +36,15 @@ class VehicleDynamics:
         def turning_motion(_):
             turning_radius = L / jnp.tan(new_delta)
             omega = new_v / turning_radius
-
-            new_x = x + turning_radius * \
-                (jnp.sin(theta + omega * dt) - jnp.sin(theta))
-            new_y = y - turning_radius * \
-                (jnp.cos(theta + omega * dt) - jnp.cos(theta))
+            new_x = x + turning_radius * (jnp.sin(theta + omega * dt) - jnp.sin(theta))
+            new_y = y - turning_radius * (jnp.cos(theta + omega * dt) - jnp.cos(theta))
             new_theta = theta + omega * dt
             return jnp.array([new_x, new_y, new_theta, new_v, new_delta])
+
         is_straight = jnp.abs(new_delta) < 1e-6
-
-        new_state = jax.lax.cond(
-            is_straight,
-            straight_motion,
-            turning_motion,
-            None
-        )
-
+        new_state = jax.lax.cond(is_straight, straight_motion, turning_motion, None)
         new_x, new_y, new_theta, new_v, new_delta = new_state
         new_theta = jnp.mod(new_theta, 2 * jnp.pi)
-
         return jnp.array([new_x, new_y, new_theta, new_v, new_delta])
 
 
@@ -85,13 +74,13 @@ class RobotaxiEnv(BaseEnv):
     def init_params(
         key: jnp.ndarray,
         map_id: int = 1,
-        max_steps: int = 1000,
+        max_steps: int = 3000,
         path_length: int = 100,
         discretization_scale: int = 1,
         perception_radius: float = 10.0,
-        num_ray_sensors: int = 16,
+        num_ray_sensors: int = 32,
         fov: float = jnp.pi,
-        fps: int = 60,
+        fps: int = 20,
     ) -> Tuple[BaseEnvParams, RobotaxiState]:
 
         env_params, base_state = BaseEnv.init_params(
@@ -109,8 +98,7 @@ class RobotaxiEnv(BaseEnv):
         initial_vehicle_state = jnp.array([
             base_state.agent_pos[0],
             base_state.agent_pos[1],
-            jnp.arctan2(
-                base_state.agent_forward_dir[1], base_state.agent_forward_dir[0]),  # theta
+            jnp.arctan2(base_state.agent_forward_dir[1], base_state.agent_forward_dir[0]),
             0.0,
             0.0
         ])
@@ -132,71 +120,39 @@ class RobotaxiEnv(BaseEnv):
 
     @staticmethod
     @partial(jax.jit, static_argnames=("env_params",))
-    def reset(
-        key: jnp.ndarray,
-        env_params: BaseEnvParams,
-        init_state: RobotaxiState | None = None
-    ) -> Tuple[jnp.ndarray, RobotaxiState]:
-
+    def reset(key: jnp.ndarray, env_params: BaseEnvParams, init_state: RobotaxiState | None = None):
         state = init_state
-
         obs = RobotaxiEnv.get_observation(state, env_params)
         return obs.as_vector(), state
 
     @staticmethod
     @partial(jax.jit, static_argnames=("env_params",))
-    def step(
-        key: jnp.ndarray,
-        env_state: RobotaxiState,
-        action: jnp.ndarray,
-        env_params: BaseEnvParams,
-    ) -> Tuple[jnp.ndarray, RobotaxiState, jnp.ndarray, jnp.ndarray, Dict[str, Any]]:
-
-        action = jnp.clip(action, jnp.array(
-            [-1.0, -1.0]), jnp.array([1.0, 1.0]))
-
-        scaled_action = jnp.array([
-            action[0] * 5.0,
-            action[1] * 1.5
-        ])
+    def step(key: jnp.ndarray, env_state: RobotaxiState, action: jnp.ndarray, env_params: BaseEnvParams):
+        action = jnp.clip(action, jnp.array([-1.0, -1.0]), jnp.array([1.0, 1.0]))
+        scaled_action = jnp.array([action[0] * 5.0, action[1] * 1.5])
 
         dt = env_params.step_size
-        new_vehicle_state = VehicleDynamics.step_dynamics(
-            env_state.vehicle_state, scaled_action, dt
-        )
+        new_vehicle_state = VehicleDynamics.step_dynamics(env_state.vehicle_state, scaled_action, dt)
         new_agent_pos = new_vehicle_state[:2]
-        new_agent_forward_dir = jnp.array([
-            jnp.cos(new_vehicle_state[2]),
-            jnp.sin(new_vehicle_state[2])
-        ])
+        new_agent_forward_dir = jnp.array([jnp.cos(new_vehicle_state[2]), jnp.sin(new_vehicle_state[2])])
 
-        new_kinematic_obstacles = RobotaxiEnv._move_kinematic_obstacles(
-            env_state, env_params
-        )
-
-        obstacles = jnp.concatenate([
-            env_state.static_obstacles, new_kinematic_obstacles
-        ], axis=0)
+        new_kinematic_obstacles = RobotaxiEnv._move_kinematic_obstacles(env_state, env_params)
 
         goal_done = RobotaxiEnv._check_goal(new_agent_pos, env_state.goal_pos)
-        collision_done = RobotaxiEnv._check_collisions(
-            new_agent_pos, obstacles)
+        collision_static = RobotaxiEnv._check_collisions(new_agent_pos, env_state.static_obstacles)
+        collision_dynamic = RobotaxiEnv._check_collisions(new_agent_pos, new_kinematic_obstacles)
         time_done = env_state.time >= env_params.max_steps_in_episode
 
-        done = jnp.logical_or(
-            goal_done, jnp.logical_or(collision_done, time_done))
+        done = jnp.logical_or(goal_done, jnp.logical_or(collision_static, jnp.logical_or(collision_dynamic, time_done)))
 
         reward = RobotaxiEnv._compute_reward(
-            env_state, new_agent_pos, new_vehicle_state, goal_done, collision_done, obstacles, env_params
-        )
-
-        pred = jnp.mod(env_state.time + 1, env_params.fps) == 0
-        new_path_array = jax.lax.cond(
-            pred,
-            lambda _: RobotaxiEnv._find_path(
-                new_agent_pos, env_state.goal_pos, obstacles, env_params),
-            lambda _: env_state.path_array,
-            None
+            env_state,
+            new_agent_pos,
+            new_vehicle_state,
+            goal_done,
+            collision_static,
+            collision_dynamic,
+            env_params
         )
 
         new_state = RobotaxiState(
@@ -207,7 +163,7 @@ class RobotaxiEnv(BaseEnv):
             static_obstacles=env_state.static_obstacles,
             kinematic_obstacles=new_kinematic_obstacles,
             kinematic_obst_velocities=env_state.kinematic_obst_velocities,
-            path_array=new_path_array,
+            path_array=env_state.path_array,
             vehicle_state=new_vehicle_state,
             last_action=scaled_action
         )
@@ -217,7 +173,8 @@ class RobotaxiEnv(BaseEnv):
             "time": new_state.time,
             "vehicle_state": new_vehicle_state,
             "goal_reached": goal_done,
-            "collision": collision_done,
+            "collision_static": collision_static,
+            "collision_dynamic": collision_dynamic,
             "distance_to_goal": jnp.linalg.norm(new_agent_pos - env_state.goal_pos)
         }
 
@@ -226,19 +183,13 @@ class RobotaxiEnv(BaseEnv):
     @staticmethod
     def get_observation(env_state: RobotaxiState, env_params: BaseEnvParams) -> RobotaxiObservation:
         base_obs = BaseEnv.get_observation(env_state, env_params)
-
         vehicle_state = env_state.vehicle_state
         goal_pos = env_state.goal_pos
-
         global_goal_vec = goal_pos - vehicle_state[:2]
         theta = vehicle_state[2]
 
-        rot_matrix = jnp.array([
-            [jnp.cos(theta), jnp.sin(theta)],
-            [-jnp.sin(theta), jnp.cos(theta)]
-        ])
+        rot_matrix = jnp.array([[jnp.cos(theta), jnp.sin(theta)], [-jnp.sin(theta), jnp.cos(theta)]])
         relative_goal = rot_matrix @ global_goal_vec
-
         goal_distance = jnp.linalg.norm(global_goal_vec)
         goal_angle = jnp.arctan2(relative_goal[1], relative_goal[0])
 
@@ -258,62 +209,27 @@ class RobotaxiEnv(BaseEnv):
         new_agent_pos: jnp.ndarray,
         new_vehicle_state: jnp.ndarray,
         goal_done: jnp.ndarray,
-        collision_done: jnp.ndarray,
-        obstacles: jnp.ndarray,
+        collision_static: jnp.ndarray,
+        collision_dynamic: jnp.ndarray,
         env_params: BaseEnvParams
     ) -> jnp.ndarray:
+        # Награда за цель
+        goal_reward = jax.lax.cond(goal_done, lambda _: 200.0, lambda _: 0.0, None)
+        # Штраф за коллизию со стеной
+        static_penalty = jax.lax.cond(collision_static, lambda _: -150.0, lambda _: 0.0, None)
+        # Штраф за коллизию с движущимся препятствием
+        dynamic_penalty = jax.lax.cond(collision_dynamic, lambda _: -150.0, lambda _: 0.0, None)
+        old_goal_dist = jnp.linalg.norm(old_state.agent_pos - old_state.goal_pos)
+        progress_reward = (old_goal_dist - jnp.linalg.norm(new_agent_pos - old_state.goal_pos)) * 15.0
 
-        base_obs = BaseEnv.get_observation(old_state, env_params)
-
-        goal_reward = jax.lax.cond(
-            goal_done,
-            lambda _: 100.0,
-            lambda _: 0.0,
-            None
-        )
-
-        collision_penalty = jax.lax.cond(
-            collision_done,
-            lambda _: -50.0,
-            lambda _: 0.0,
-            None
-        )
-
-        old_goal_dist = jnp.linalg.norm(
-            old_state.agent_pos - old_state.goal_pos)
-        new_goal_dist = jnp.linalg.norm(new_agent_pos - old_state.goal_pos)
-        progress_reward = (old_goal_dist - new_goal_dist) * 10.0
-
-        map_height, map_width = env_params.map_height_width
-        x, y = new_agent_pos
-        out_of_bounds = (x < 0) | (x > map_width) | (y < 0) | (y > map_height)
-        out_of_bounds_penalty = jax.lax.cond(
-            out_of_bounds,
-            lambda _: -10.0,
-            lambda _: 0.0,
-            None
-        )
-
-        action_penalty = -0.01 * jnp.sum(jnp.square(old_state.last_action))
-
+        action_penalty = -0.001 * jnp.sum(jnp.square(old_state.last_action))
         speed = new_vehicle_state[3]
-        min_ray_distance = jnp.min(base_obs.collision_rays)
-        speed_penalty = jax.lax.cond(
-            (min_ray_distance < 2.0) & (speed > 2.0),
-            lambda _: -5.0,
-            lambda _: 0.0,
-            None
-        )
-        time_penalty = -0.1
+        movement_reward = speed * 0.5
 
-        total_reward = (
-            goal_reward +
-            collision_penalty +
-            progress_reward +
-            out_of_bounds_penalty +
-            action_penalty +
-            speed_penalty +
-            time_penalty
-        )
+        # Штраф за стояние
+        stillness_penalty = jax.lax.cond(speed < 0.01, lambda _: -2.0, lambda _: 0.0, None)
+        time_penalty = -0.01
 
+        total_reward = (goal_reward + static_penalty + dynamic_penalty + progress_reward +
+                        action_penalty + movement_reward + stillness_penalty + time_penalty)
         return total_reward

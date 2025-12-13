@@ -3,7 +3,7 @@ from env.robotaxi import RobotaxiEnv
 from env.base import BaseEnv
 from utils.renderer import PygameFrontend
 from utils.autoreset import AutoResetWrapper
-
+import imageio
 
 key = jax.random.PRNGKey(0)
 env_params, init_state = RobotaxiEnv.init_params(
@@ -36,10 +36,7 @@ class RendererCompatibleEnv:
     
 compatible_env = RendererCompatibleEnv(RobotaxiEnv, env_params)
 env = AutoResetWrapper(compatible_env, env_params, init_state)
+frames = []
 
-# test parallel envs
-# TBD
-
-# test renderer
-frontend = PygameFrontend(env, env_params, init_state, eval_mode=False)
+frontend = PygameFrontend(env, env_params, init_state, stop_on_done=False, video_name="manual_control")
 frontend.run()
