@@ -2,7 +2,7 @@ jax
 chex
 optax
 equinox
-flax        # use flax or equinox
+flax
 numpy
 pygame
 imageio 

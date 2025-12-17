@@ -270,5 +270,5 @@ class PygameFrontend:
                 self.video_frames,
                 fps=FPS
             )
-            print("Video saved as manual_control.mp4")
+            print(f"Video saved as {self.video_name}.mp4")
         pygame.quit()

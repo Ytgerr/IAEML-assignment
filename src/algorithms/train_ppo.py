@@ -59,7 +59,8 @@ def collect_trajectory(env, env_params, init_state, agent: PPOAgent,
         episode_return += reward
         
         if bool(done):
-            break
+            subkey, key = jax.random.split(key)
+            obs, state = env.reset(subkey, env_params, init_state)
     
     memory = PPOMemory(
         observations=jnp.stack(observations),
@@ -111,7 +112,6 @@ def train_ppo(num_episodes: int = 100, trajectory_length: int = 256,
         learning_rate=1e-4,
         hidden_dim=256,
     )
-    
     
     print(f"\nStarting training for {num_episodes} episodes...")
     
