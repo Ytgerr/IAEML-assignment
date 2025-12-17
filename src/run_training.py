@@ -110,9 +110,9 @@ def main():
     print("=" * 60)
     
     config = {
-        'num_episodes': 100, 
-        'trajectory_length': 2048,   
-        'num_updates_per_episode': 16,
+        'num_episodes': 105, 
+        'trajectory_length': 2024,   
+        'num_updates_per_episode': 12,
         'map_id': 1,
         'eval_steps': 1000,          
     }
@@ -134,7 +134,7 @@ def main():
     )
     
     print("\n✓ Training completed!")
-    
+    agent.save("src\model\ppo_robotaxi.eqx")
     # Step 2: Evaluate agent (deterministic actions)
     print("\n" + "=" * 60)
     print("Step 2: Evaluating Trained Agent")

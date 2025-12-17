@@ -38,5 +38,5 @@ compatible_env = RendererCompatibleEnv(RobotaxiEnv, env_params)
 env = AutoResetWrapper(compatible_env, env_params, init_state)
 frames = []
 
-frontend = PygameFrontend(env, env_params, init_state, stop_on_done=False, video_name="manual_control")
+frontend = PygameFrontend(env, env_params, init_state, stop_on_done=False, video_name="user_test")
 frontend.run()

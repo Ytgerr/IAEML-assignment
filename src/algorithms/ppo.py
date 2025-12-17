@@ -74,20 +74,78 @@ class ValueNetwork(eqx.Module):
 class PPOAgent(eqx.Module):
     policy: PolicyNetwork
     value: ValueNetwork
-    policy_optimizer: optax.GradientTransformation
-    value_optimizer: optax.GradientTransformation
+
+    policy_optimizer: optax.GradientTransformation = eqx.static_field()
+    value_optimizer: optax.GradientTransformation = eqx.static_field()
     policy_opt_state: optax.OptState
     value_opt_state: optax.OptState
 
-    def __init__(self, obs_dim: int, action_dim: int, key: chex.PRNGKey, learning_rate: float = 3e-4, hidden_dim: int = 256):
-        keys = jax.random.split(key, 2)
-        self.policy = PolicyNetwork(obs_dim, action_dim, keys[0], hidden_dim)
-        self.value = ValueNetwork(obs_dim, keys[1], hidden_dim)
+    def __init__(
+        self,
+        obs_dim: int,
+        action_dim: int,
+        key: chex.PRNGKey,
+        learning_rate: float = 3e-4,
+        hidden_dim: int = 256,
+    ):
+        k1, k2 = jax.random.split(key, 2)
+
+        self.policy = PolicyNetwork(obs_dim, action_dim, k1, hidden_dim)
+        self.value = ValueNetwork(obs_dim, k2, hidden_dim)
+
         self.policy_optimizer = optax.adam(learning_rate)
         self.value_optimizer = optax.adam(learning_rate)
-        self.policy_opt_state = self.policy_optimizer.init(eqx.filter(self.policy, eqx.is_array))
-        self.value_opt_state = self.value_optimizer.init(eqx.filter(self.value, eqx.is_array))
 
+        self.policy_opt_state = self.policy_optimizer.init(
+            eqx.filter(self.policy, eqx.is_array)
+        )
+        self.value_opt_state = self.value_optimizer.init(
+            eqx.filter(self.value, eqx.is_array)
+        )
+
+    # ================= SAVE =================
+
+    def save(self, path: str):
+        to_save = {
+            "policy": self.policy,
+            "value": self.value,
+            "policy_opt_state": self.policy_opt_state,
+            "value_opt_state": self.value_opt_state,
+        }
+        with open(path, "wb") as f:
+            eqx.tree_serialise_leaves(f, to_save)
+        print(f"Model saved to {path}")
+
+    # ================= LOAD =================
+
+    @staticmethod
+    def load(path: str, agent_template: "PPOAgent") -> "PPOAgent":
+        with open(path, "rb") as f:
+            loaded = eqx.tree_deserialise_leaves(
+                f,
+                {
+                    "policy": agent_template.policy,
+                    "value": agent_template.value,
+                    "policy_opt_state": agent_template.policy_opt_state,
+                    "value_opt_state": agent_template.value_opt_state,
+                },
+            )
+
+        return eqx.tree_at(
+            lambda a: (
+                a.policy,
+                a.value,
+                a.policy_opt_state,
+                a.value_opt_state,
+            ),
+            agent_template,
+            (
+                loaded["policy"],
+                loaded["value"],
+                loaded["policy_opt_state"],
+                loaded["value_opt_state"],
+            ),
+        )
 
 def compute_advantages(rewards, values, dones, gamma=0.99, gae_lambda=0.95):
     trajectory_length = len(rewards)
