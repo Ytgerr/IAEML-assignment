@@ -22,4 +22,6 @@
 - ```python src/main.py``` - for manual control
 - ```python src/run_training.py``` - for training PPO
 - ```python src/play_training_model.py``` - for use ready model
+
+
 If you have question, you can write PM on telegram(@Ytger)
