@@ -110,7 +110,7 @@ def main():
     print("=" * 60)
     
     config = {
-        'num_episodes': 100, 
+        'num_episodes': 105, 
         'trajectory_length': 2024,   
         'num_updates_per_episode': 12,
         'map_id': 1,
